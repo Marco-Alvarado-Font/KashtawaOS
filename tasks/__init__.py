@@ -6,5 +6,6 @@ Contains all RTOS task implementations
 from .sensor_task import SensorTask
 from .lcd_task import LCDTask
 from .system_task import SystemTask
+from .wifi_task import WiFiTask
 
-__all__ = ['SensorTask', 'LCDTask', 'SystemTask']
+__all__ = ['SensorTask', 'LCDTask', 'SystemTask', 'WiFiTask']
