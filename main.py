@@ -7,10 +7,12 @@ from machine import Pin, SoftI2C
 import time
 from utils.pico_i2c_lcd import I2cLcd
 from utils.hcsr04 import HCSR04
+from utils.wifi_driver import WiFiDriver
 from core.scheduler import Scheduler
 from tasks.sensor_task import SensorTask
 from tasks.lcd_task import LCDTask
 from tasks.system_task import SystemTask
+from tasks.wifi_task import WiFiTask
 
 def main():
     """Main system function - Initialize RTOS and start scheduler"""
@@ -36,6 +38,9 @@ def main():
         # Initialize HC-SR04 ultrasonic sensor
         sensor = HCSR04(trigger_pin=HC_TRIGGER_PIN, echo_pin=HC_ECHO_PIN, echo_timeout_us=30000)
         
+        # Initialize WiFi driver (credentials hardcoded in driver)
+        wifi_driver = WiFiDriver()
+        
         # Startup message
         lcd.clear()
         lcd.putstr("KashtawaRTOS v1.0")
@@ -46,6 +51,7 @@ def main():
         print("Hardware initialized successfully")
         print(f"  - LCD: I2C @ 0x{I2C_ADDR:02X}")
         print(f"  - HC-SR04: Trigger=GPIO{HC_TRIGGER_PIN}, Echo=GPIO{HC_ECHO_PIN}")
+        print("  - WiFi: MILKY")
         
     except Exception as e:
         print(f"Error initializing hardware: {e}")
@@ -58,10 +64,14 @@ def main():
     
     # Create task objects
     sensor_task = SensorTask(sensor)
-    lcd_task = LCDTask(lcd, sensor_task)
+    wifi_task = WiFiTask(wifi_driver)
+    lcd_task = LCDTask(lcd, sensor_task, wifi_task)
     system_task = SystemTask()
     
     # Add tasks to scheduler
+    # WiFi connection check every 30 seconds
+    scheduler.create_task("WiFi Connection", wifi_task.connect_wifi, interval_ms=30000)
+    
     # Distance measurement every 2 seconds (slower for stable readings)
     scheduler.create_task("Distance Sensor", sensor_task.read_distance, interval_ms=2000)
     
@@ -75,6 +85,7 @@ def main():
     print("")
     print("Starting scheduler...")
     print("Tasks registered:")
+    print("  - WiFi Connection: 30000ms interval")
     print("  - Distance Sensor: 2000ms interval")
     print("  - LCD Display: 2000ms interval")
     print("  - System Monitor: 10000ms interval")
