@@ -14,11 +14,11 @@ KashtawaOS is the embedded firmware for an autonomous inventory control drone. T
 
 ## Hardware Requirements
 
-- Raspberry Pi Pico W
-- HC-SR04 Ultrasonic Sensor
-- I2C LCD Display (16x2 or 20x4)
-- RFID Reader Module
-- Power supply and mounting hardware
+- Raspberry Pi Pico W.
+- HC-SR04 Ultrasonic Sensor.
+- I2C LCD Display (16x2 or 20x4).
+- RFID Reader Module.
+- Power supply and mounting hardware.
 
 ## Project Structure
 

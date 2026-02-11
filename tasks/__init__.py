@@ -8,5 +8,6 @@ from .lcd_task import LCDTask
 from .system_task import SystemTask
 from .wifi_task import WiFiTask
 from .data_logger_task import DataLoggerTask
+from .api_sync_task import ApiSyncTask
 
-__all__ = ['SensorTask', 'LCDTask', 'SystemTask', 'WiFiTask', 'DataLoggerTask']
+__all__ = ['SensorTask', 'LCDTask', 'SystemTask', 'WiFiTask', 'DataLoggerTask', 'ApiSyncTask']
