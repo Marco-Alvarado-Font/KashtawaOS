@@ -8,11 +8,13 @@ import time
 from utils.pico_i2c_lcd import I2cLcd
 from utils.hcsr04 import HCSR04
 from utils.wifi_driver import WiFiDriver
+from utils.internal_storage import InternalStorageDriver
 from core.scheduler import Scheduler
 from tasks.sensor_task import SensorTask
 from tasks.lcd_task import LCDTask
 from tasks.system_task import SystemTask
 from tasks.wifi_task import WiFiTask
+from tasks.data_logger_task import DataLoggerTask
 
 def main():
     """Main system function - Initialize RTOS and start scheduler"""
@@ -41,6 +43,9 @@ def main():
         # Initialize WiFi driver (credentials hardcoded in driver)
         wifi_driver = WiFiDriver()
         
+        # Initialize internal storage for data logging
+        storage_driver = InternalStorageDriver(log_file="data.txt")
+        
         # Startup message
         lcd.clear()
         lcd.putstr("KashtawaRTOS v1.0")
@@ -52,6 +57,7 @@ def main():
         print(f"  - LCD: I2C @ 0x{I2C_ADDR:02X}")
         print(f"  - HC-SR04: Trigger=GPIO{HC_TRIGGER_PIN}, Echo=GPIO{HC_ECHO_PIN}")
         print("  - WiFi: MILKY")
+        print(f"  - Storage: Internal flash (data.txt)")
         
     except Exception as e:
         print(f"Error initializing hardware: {e}")
@@ -66,6 +72,7 @@ def main():
     sensor_task = SensorTask(sensor)
     wifi_task = WiFiTask(wifi_driver)
     lcd_task = LCDTask(lcd, sensor_task, wifi_task)
+    data_logger_task = DataLoggerTask(storage_driver, sensor_task)
     system_task = SystemTask()
     
     # Add tasks to scheduler
@@ -78,6 +85,9 @@ def main():
     # LCD update every 2 seconds (synchronized with sensor)
     scheduler.create_task("LCD Display", lcd_task.update_display, interval_ms=2000)
     
+    # Data logging to internal flash every 5 seconds
+    scheduler.create_task("Data Logger", data_logger_task.log_data, interval_ms=5000)
+    
     # System monitor every 10 seconds (low priority)
     scheduler.create_task("System Monitor", system_task.monitor, interval_ms=10000)
     
@@ -88,6 +98,7 @@ def main():
     print("  - WiFi Connection: 30000ms interval")
     print("  - Distance Sensor: 2000ms interval")
     print("  - LCD Display: 2000ms interval")
+    print("  - Data Logger: 5000ms interval (to data.txt)")
     print("  - System Monitor: 10000ms interval")
     print("")
     
