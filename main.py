@@ -15,6 +15,7 @@ from tasks.lcd_task import LCDTask
 from tasks.system_task import SystemTask
 from tasks.wifi_task import WiFiTask
 from tasks.data_logger_task import DataLoggerTask
+from tasks.api_sync_task import ApiSyncTask
 
 def main():
     """Main system function - Initialize RTOS and start scheduler"""
@@ -73,6 +74,7 @@ def main():
     wifi_task = WiFiTask(wifi_driver)
     lcd_task = LCDTask(lcd, sensor_task, wifi_task)
     data_logger_task = DataLoggerTask(storage_driver, sensor_task)
+    api_sync_task = ApiSyncTask(storage_driver, wifi_task, batch_size=10)
     system_task = SystemTask()
     
     # Add tasks to scheduler
@@ -88,6 +90,9 @@ def main():
     # Data logging to internal flash every 5 seconds
     scheduler.create_task("Data Logger", data_logger_task.log_data, interval_ms=5000)
     
+    # API synchronization every 60 seconds (checks if batch_size reached)
+    scheduler.create_task("API Sync", api_sync_task.check_and_send, interval_ms=60000)
+    
     # System monitor every 10 seconds (low priority)
     scheduler.create_task("System Monitor", system_task.monitor, interval_ms=10000)
     
@@ -99,6 +104,7 @@ def main():
     print("  - Distance Sensor: 2000ms interval")
     print("  - LCD Display: 2000ms interval")
     print("  - Data Logger: 5000ms interval (to data.txt)")
+    print("  - API Sync: 60000ms interval (batch size: 10)")
     print("  - System Monitor: 10000ms interval")
     print("")
     
