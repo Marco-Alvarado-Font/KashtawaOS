@@ -125,6 +125,35 @@ Monitors system health and resources.
 
 **Execution Interval:** 10000ms (10 seconds, low priority)
 
+#### 2.4 DataLoggerTask (`tasks/data_logger_task.py`)
+Responsible for persistent logging of sensor data to internal flash storage.
+
+**Responsibilities:**
+- Read distance measurements from SensorTask
+- Convert distance from cm to meters
+- Format data as JSON with metadata
+- Write to internal flash storage (data.txt)
+- Ensure data persistence across reboots
+
+**Data Flow:**
+```
+SensorTask.last_distance → DataLoggerTask.log_data() → InternalStorageDriver → Flash (data.txt)
+```
+
+**Log Format:**
+```json
+{"timestamp": 1234567890, "sensor_id": 1, "distance_m": 1.234, "type": "distance"}
+```
+
+**Features:**
+- JSON Lines format (one JSON object per line)
+- Automatic file append mode
+- Explicit flush after each write for persistence
+- Error handling with status tracking
+- Debug output for verification
+
+**Execution Interval:** 5000ms (5 seconds)
+
 ---
 
 ### 3. Hardware Drivers
@@ -159,37 +188,72 @@ Ultrasonic distance sensor driver.
 - Calculates distance using sound speed (343.2 m/s)
 - Returns distance in centimeters
 
+#### 3.3 Internal Storage Driver (`utils/internal_storage.py`)
+File I/O driver for persistent data storage on Pico W internal flash.
+
+**Storage Configuration:**
+- Filesystem: LittleFS (MicroPython default)
+- Log File: data.txt (configurable)
+- Format: JSON Lines (one JSON object per line)
+- Mode: Append (preserves existing data)
+
+**Key Features:**
+- **Persistent Storage**: Data survives reboots and power cycles
+- **JSON Support**: Structured data with compact formatting
+- **Append Mode**: Accumulates data without overwriting
+- **Explicit Flush**: Guarantees immediate write to flash
+- **File Management**: Read, clear, and analyze log files
+
+**Main Methods:**
+```python
+write_json(data_dict)           # Write JSON object to file
+read_json_lines(max_lines)      # Read JSON objects from file
+read_all()                      # Read entire file contents
+clear_file()                    # Delete all log data
+get_file_size()                 # Get file size in bytes
+get_line_count()                # Count log entries
+file_exists()                   # Check if log file exists
+```
+
+**Storage Characteristics:**
+- No external hardware required (uses internal flash)
+- Approximately 1.4MB available for user data
+- Wear leveling handled by LittleFS
+- Atomic writes for data integrity
+
 ---
 
 ## System Diagram
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                   KashtawaRTOS RTOS                   │
+│                   KashtawaRTOS RTOS                 │
 ├─────────────────────────────────────────────────────┤
 │                                                     │
-│  ┌───────────────────────────────────────────┐    │
-│  │           Scheduler (Core)                 │    │
-│  │  - Round-robin task execution             │    │
-│  │  - Time-based scheduling                  │    │
-│  │  - Task management                        │    │
-│  └────────────┬──────────────┬───────────────┘    │
-│               │              │                     │
-│  ┌────────────▼────┐  ┌──────▼────────┐  ┌───────▼────┐
-│  │  SensorTask     │  │   LCDTask     │  │ SystemTask │
-│  │  (2000ms)       │  │   (2000ms)    │  │ (10000ms)  │
-│  └────────┬────────┘  └───────┬───────┘  └────────────┘
-│           │                   │                         │
-├───────────┼───────────────────┼─────────────────────────┤
-│  Hardware Abstraction Layer   │                         │
-├───────────┼───────────────────┼─────────────────────────┤
-│           │                   │                         │
-│  ┌────────▼────────┐  ┌───────▼───────┐               │
-│  │  HCSR04 Driver  │  │  LCD Driver   │               │
-│  │  (GPIO 27/28)   │  │  (I2C 0x27)   │               │
-│  └─────────────────┘  └───────────────┘               │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
+│  ┌───────────────────────────────────────────┐      │
+│  │           Scheduler (Core)                │      │
+│  │  - Round-robin task execution             │      │
+│  │  - Time-based scheduling                  │      │
+│  │  - Task management                        │      │
+│  └──┬────────┬──────────┬──────────┬─────────┘      │
+│     │        │          │          │                │
+│  ┌──▼────┐ ┌─▼────┐ ┌───▼────┐ ┌───▼─────────┐      │
+│  │Sensor │ │ LCD  │ │ System │ │ DataLogger │       │
+│  │Task   │ │Task  │ │ Task   │ │ Task       │       │
+│  │(2s)   │ │(2s)  │ │ (10s)  │ │ (5s)       │       │
+│  └───┬───┘ └──┬───┘ └────────┘ └─────┬──────┘       │
+│      │        │                       │             │
+├──────┼────────┼───────────────────────┼─────────────┤
+│  Hardware Abstraction Layer           │             │
+├──────┼────────┼───────────────────────┼─────────────┤
+│      │        │                       │             │
+│  ┌───▼──┐ ┌──▼────┐            ┌─────▼─────────┐    │
+│  │HCSR04│ │  LCD  │            │ Internal      │    │
+│  │Driver│ │Driver │            │ Storage       │    │
+│  │GPIO  │ │I2C    │            │ (Flash)       │    │
+│  └──────┘ └───────┘            └───────────────┘    │
+│                                                     │
+└─────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -197,13 +261,15 @@ Ultrasonic distance sensor driver.
 ## Task Scheduling Timeline
 
 ```
-Time (ms)    0     1000    2000    3000    4000    5000    6000    8000    10000
+Time (ms)    0     2000    4000    5000    6000    8000    10000   12000   15000
              │      │       │       │       │       │       │       │       │
-SensorTask   ●──────────────●───────────────●───────────────●───────────────●
+SensorTask   ●──────●───────●───────────────●───────●───────●───────●───────●
              │      │       │       │       │       │       │       │       │
-LCDTask      ●──────────────●───────────────●───────────────●───────────────●
+LCDTask      ●──────●───────●───────────────●───────●───────●───────●───────●
              │      │       │       │       │       │       │       │       │
-SystemTask   ●──────────────────────────────────────────────────────────────●
+DataLogger   ●──────────────────────●───────────────────────●───────────────●
+             │      │       │       │       │       │       │       │       │
+SystemTask   ●──────────────────────────────────────●───────────────────────●
 
 Legend:
 ● = Task execution
@@ -227,10 +293,17 @@ Each task maintains minimal state:
 
 ### Total RAM Usage (Estimated)
 - Core RTOS: ~2 KB
-- Tasks (3): ~1 KB
-- Drivers: ~3 KB
+- Tasks (4): ~1.5 KB
+- Drivers: ~4 KB
 - User data: ~2 KB
-- **Total: ~8 KB** (RP2040 has 264 KB SRAM)
+- **Total: ~9.5 KB** (RP2040 has 264 KB SRAM)
+
+### Flash Storage Usage
+- MicroPython firmware: ~1.4 MB
+- User code (RTOS + tasks): ~20 KB
+- Available for data logging: ~1.4 MB
+- Log file format: ~80-100 bytes per entry (JSON)
+- Estimated capacity: ~14,000-17,000 log entries
 
 ---
 
@@ -249,12 +322,32 @@ Each task maintains minimal state:
 ┌──────────────┐                                  ┌──────────────┐
 │  SensorTask  │                                  │   LCDTask    │
 │              │                                  │              │
-│ .last_distance◄──────────Read Data─────────────│ .sensor_task │
+│ .last_distance◄──────────Read Data──────────────│ .sensor_task │
 │ .has_error   │                                  │              │
-└──────────────┘                                  └──────────────┘
-       ▲                                                 ▲
+└──────┬───────┘                                  └──────────────┘
+       │                                                 ▲
+       │ Read Data                                       │
+       ▼                                                 │
+┌──────────────┐                                         │
+│DataLoggerTask│                                         │
+│              │                                         │
+│  .storage    │                                         │
+└──────┬───────┘                                         │
        │                                                 │
-       └─────────────Scheduled by Scheduler─────────────┘
+       │ Write JSON                                      │
+       ▼                                                 │
+┌──────────────┐                                         │
+│InternalStore │                                         │
+│   Driver     │                                         │
+│              │                                         │
+│  data.txt    │                                         │
+└──────┬───────┘                                         │
+       │                                                 │
+       ▼                                                 │
+  Flash Storage                                          │
+       ▲                                                 │
+       │                                                 │
+       └─────────────Scheduled by Scheduler──────────────┘
                             │
                      ┌──────────────┐
                      │  Scheduler   │
@@ -281,7 +374,15 @@ HC_ECHO_PIN = 28          # HC-SR04 echo pin
 ```python
 SENSOR_INTERVAL = 2000    # Distance measurement (ms)
 LCD_INTERVAL = 2000       # Display update (ms)
+LOGGER_INTERVAL = 5000    # Data logging (ms)
 SYSTEM_INTERVAL = 10000   # System monitor (ms)
+```
+
+### Storage Configuration
+```python
+LOG_FILE = "data.txt"     # Data log filename
+LOG_FORMAT = "json"       # JSON Lines format
+WRITE_MODE = "append"     # Preserve existing data
 ```
 
 ### Timing Parameters
@@ -298,6 +399,7 @@ I2C_FREQ = 400000         # I2C bus frequency (Hz)
 ### 1. Separation of Concerns
 - **SensorTask**: Only reads sensor
 - **LCDTask**: Only displays data
+- **DataLoggerTask**: Only logs data to storage
 - **SystemTask**: Only monitors system
 - Each task has a single, well-defined responsibility
 
@@ -320,6 +422,13 @@ I2C_FREQ = 400000         # I2C bus frequency (Hz)
 - Minimal memory overhead
 - Explicit garbage collection
 - No dynamic memory allocation in loops
+
+### 6. Data Persistence
+- Append-only log file for reliability
+- Explicit flush after each write
+- JSON format for structured data
+- No external storage dependencies
+- Data survives reboots and power cycles
 
 ---
 
@@ -371,6 +480,13 @@ scheduler.create_task("New Task", new_task.execute, interval_ms=1000)
 - **Task execution**: ~5% (quick bursts)
 - **Scalability**: Can handle 5-10 tasks before degradation
 
+### Storage Performance
+- **Write speed**: ~1-2ms per JSON entry
+- **File operations**: Non-blocking at task level
+- **Flash endurance**: ~100,000 write cycles per block
+- **Expected lifespan**: Years with typical logging intervals
+- **Data integrity**: LittleFS wear leveling and power-loss protection
+
 ### Response Time
 - **Sensor reading**: 2000ms (configured interval)
 - **Display update**: 2000ms (configured interval)
@@ -385,6 +501,8 @@ scheduler.create_task("New Task", new_task.execute, interval_ms=1000)
 3. **No Inter-task Communication**: Tasks share data via object references
 4. **No Real-time Guarantees**: Timing depends on task cooperation
 5. **Single Core**: Does not utilize RP2040's second core
+6. **Limited Flash Space**: ~1.4MB available for data logging
+7. **No Data Compression**: JSON format uses more space than binary
 
 ---
 
@@ -397,6 +515,9 @@ scheduler.create_task("New Task", new_task.execute, interval_ms=1000)
 5. **Dual-core Support**: Utilize RP2040's second core
 6. **Watchdog Timer**: Add task timeout detection
 7. **Performance Metrics**: Add task execution time tracking
+8. **Data Compression**: Implement binary or compressed log formats
+9. **Remote Data Access**: WiFi-based log file download
+10. **Circular Buffer**: Automatic log rotation when storage fills
 
 ---
 
@@ -413,13 +534,17 @@ KashtawaOS/
 │   ├── __init__.py
 │   ├── sensor_task.py        # HC-SR04 sensor task
 │   ├── lcd_task.py           # LCD display task
+│   ├── data_logger_task.py   # Data logging task
 │   └── system_task.py        # System monitoring task
 ├── utils/
 │   ├── __init__.py
 │   ├── hcsr04.py            # HC-SR04 driver
 │   ├── pico_i2c_lcd.py      # I2C LCD driver
-│   └── lcd_api.py           # LCD API abstraction
-└── README.md                 # Project documentation
+│   ├── lcd_api.py           # LCD API abstraction
+│   └── internal_storage.py  # Internal flash storage driver
+├── data.txt                  # Persistent log file (created at runtime)
+├── README.md                 # Project documentation
+└── ARCHITECTURE.md           # Architecture documentation
 ```
 
 ---
@@ -434,6 +559,10 @@ KashtawaOS/
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** January 16, 2026  
+**Document Version:** 1.1  
+**Last Updated:** February 10, 2026  
 **Author:** Marco Alvarado Zamora
+
+**Changelog:**
+- **v1.1 (Feb 10, 2026)**: Added internal flash storage support with DataLoggerTask and InternalStorageDriver
+- **v1.0 (Jan 16, 2026)**: Initial documentation release
